@@ -8,6 +8,7 @@ name: watchdog
 #
 # Secrets: CONTABO_CLIENT_ID, CONTABO_CLIENT_SECRET, CONTABO_API_USER,
 # CONTABO_API_PASSWORD. Variabel: CONTABO_INSTANCE_ID.
+# Jadwal pertama repo baru bisa tertunda; cek tab Actions bila belum ada run `schedule`.
 
 on:
   schedule:

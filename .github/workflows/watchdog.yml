@@ -1,0 +1,61 @@
+name: watchdog
+
+# Auto-pulih produksi DizzPOS tiap ±5 menit (cron GitHub bisa terlambat).
+# API mati 3x berturut-turut → baca status VM Contabo → `start` bila stopped,
+# `restart` bila running tapi hang (cooldown 15 menit antar aksi) → job merah
+# = email GitHub ke pemilik repo. Repo publik supaya menit Actions gratis;
+# kredensial hanya di Secrets.
+#
+# Secrets: CONTABO_CLIENT_ID, CONTABO_CLIENT_SECRET, CONTABO_API_USER,
+# CONTABO_API_PASSWORD. Variabel: CONTABO_INSTANCE_ID.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Baca saja (tanpa start/restart)"
+        type: boolean
+        default: true
+      force_check:
+        description: "Lewati cek health, uji akses Contabo"
+        type: boolean
+        default: false
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+permissions:
+  contents: write # keepalive: GitHub mematikan cron repo publik setelah 60 hari tanpa aktivitas
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cek & pulihkan produksi
+        env:
+          CONTABO_CLIENT_ID: ${{ secrets.CONTABO_CLIENT_ID }}
+          CONTABO_CLIENT_SECRET: ${{ secrets.CONTABO_CLIENT_SECRET }}
+          CONTABO_API_USER: ${{ secrets.CONTABO_API_USER }}
+          CONTABO_API_PASSWORD: ${{ secrets.CONTABO_API_PASSWORD }}
+          CONTABO_INSTANCE_ID: ${{ vars.CONTABO_INSTANCE_ID }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          FORCE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.force_check && '1' || '' }}
+        run: python3 -I prod-watchdog.py
+
+      - name: Keepalive (commit kosong bila repo diam > 50 hari)
+        if: always() && github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if [ $(( (now - last) / 86400 )) -ge 50 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keepalive jadwal watchdog"
+            git push
+          fi
